@@ -1,0 +1,126 @@
+schema_version: 1
+
+priority:
+  order: [P0, P1, P2]
+  fallback: P2
+  evaluate_all_rules: true
+  explicit_labels:
+    case_sensitive: false
+    P0: [P0]
+    P1: [P1]
+    P2: [P2]
+  priority_like_label_pattern: '^P[0-9]+$'
+  preserve_explicit_priority_floor: true
+  linked_priority_source: explicit_labels_or_reviewed_overrides
+  recursive_derived_priority_propagation: false
+
+security:
+  labels: [security]
+  case_sensitive: false
+  keyword_only_match: false
+  allow_reviewed_override: true
+
+relationships:
+  accepted_issue_links:
+    - github_issue_dependency
+    - shared_confirmed_closing_pr
+    - reviewed_related_issue
+  accepted_pr_links:
+    - github_closing_relationship
+    - reviewed_association
+  plain_cross_reference_is_confirmed: false
+  active_pr_states: [open]
+  allow_merged_pr_for_priority: false
+
+community:
+  excluded_authors:
+    - app/copilot-swe-agent
+    - copilot-swe-agent[bot]
+  microsoft_organizations:
+    - microsoft
+    - Azure
+  case_sensitive: false
+  required_membership_state: non_member
+  allow_reviewed_membership_override: true
+  public_membership_absence_is_non_membership: false
+  ambiguous_404_is_non_membership: false
+
+low_effort:
+  max_changed_files: 5
+  max_added_plus_deleted_lines: 100
+  count_all_changed_files: true
+  allow_binary_changes: false
+  allow_draft: false
+  require_confirmed_mergeable: true
+  require_changed_test_file: true
+  test_file_patterns:
+    - "**/tests/**"
+    - "**/test/**"
+    - "**/test_*.py"
+    - "**/*_test.py"
+    - "**/*.test.*"
+    - "**/*.spec.*"
+  test_job_patterns:
+    - "*test*"
+    - "*pytest*"
+  require_successful_current_head_test_job: true
+  require_all_required_checks_successful: true
+  allow_failed_pending_cancelled_or_unknown_checks: false
+  allow_stale_head_checks: false
+  allow_unknown_required_checks: false
+
+overdue:
+  age_days: 14
+  comparison: strictly_greater_than
+  time_basis: pr_created_at
+  timezone: UTC
+  no_priority_scope: issue_and_pr
+  unknown_priority_like_label_counts_as_unset: false
+
+rules:
+  - id: explicit-p0
+    priority: P0
+    when:
+      all: [issue_has_explicit_p0]
+
+  - id: security-fix
+    priority: P0
+    when:
+      any:
+        - issue_has_trusted_security_fix_evidence
+        - eligible_pr_has_trusted_security_fix_evidence
+
+  - id: linked-p0
+    priority: P0
+    when:
+      all: [accepted_link_has_explicit_p0]
+
+  - id: low-effort-community-pr
+    priority: P0
+    when:
+      all:
+        - same_eligible_pr_is_verified_community
+        - same_eligible_pr_meets_low_effort_policy
+
+  - id: explicit-p1
+    priority: P1
+    when:
+      all: [issue_has_explicit_p1]
+
+  - id: linked-p1
+    priority: P1
+    when:
+      all: [accepted_link_has_explicit_p1]
+
+  - id: overdue-unprioritized-pr
+    priority: P1
+    when:
+      all:
+        - same_eligible_pr_is_older_than_age_threshold
+        - issue_and_same_pr_have_no_explicit_priority
+        - issue_and_same_pr_have_no_unmapped_priority_like_label
+
+  - id: community-pr
+    priority: P1
+    when:
+      all: [eligible_pr_is_verified_community]

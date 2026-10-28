@@ -1,0 +1,14 @@
+schema_version: 1
+
+repositories:
+  - Azure/azure-cli
+  - Azure/azure-cli-extensions
+labels:
+  - Compute
+label_match: all
+state: open
+date_range:
+  field: created
+  from: null
+  to: null
+output_dir: output

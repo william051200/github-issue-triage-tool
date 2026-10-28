@@ -1,0 +1,89 @@
+schema_version: 1
+
+missing_information_labels:
+  - needs-author-feedback
+  - needs-info
+  - needs-information
+
+selection:
+  first_matching_rule_wins: true
+  fallback: triage-needed
+  preserve_secondary_actions_in_audit: true
+  selected_pr:
+    order:
+      - highest_matched_priority
+      - low_effort_merge_candidate_first
+      - created_at_ascending
+      - repository_ascending
+      - number_ascending
+
+rules:
+  - id: security-review
+    when:
+      any:
+        - issue_has_trusted_security_fix_evidence
+        - eligible_pr_has_trusted_security_fix_evidence
+    action: Route through the repository security process.
+
+  - id: data-incomplete
+    when:
+      all: [required_issue_or_pr_collection_failed]
+    action: Restore access or retry collection before relying on this assessment.
+
+  - id: ci-fix-needed
+    when:
+      all: [selected_pr_has_failed_current_head_ci]
+    action: Inspect failing jobs and repair the PR.
+
+  - id: awaiting-ci
+    when:
+      all: [selected_pr_has_pending_or_running_current_head_ci]
+    action: Wait for CI completion and refresh.
+
+  - id: pr-update-needed
+    when:
+      any:
+        - selected_pr_is_draft
+        - selected_pr_has_merge_conflict
+        - selected_pr_has_effective_changes_requested_review
+    action: Address the PR update or review request.
+
+  - id: verify-release
+    when:
+      all:
+        - relevant_fix_pr_is_merged
+        - no_active_replacement_pr_exists
+    action: Confirm release availability and issue resolution.
+
+  - id: merge-candidate
+    when:
+      all:
+        - selected_pr_is_verified_community
+        - selected_pr_meets_low_effort_policy
+    action: Perform maintainer review before deciding whether to merge.
+
+  - id: review-overdue
+    when:
+      all: [selected_pr_matches_overdue_unprioritized_rule]
+    action: Assign priority and review the PR.
+
+  - id: review-community-pr
+    when:
+      all: [selected_pr_is_verified_community]
+    action: Review the contribution and provide actionable feedback.
+
+  - id: linked-priority-review
+    when:
+      any:
+        - accepted_link_has_explicit_p0
+        - accepted_link_has_explicit_p1
+    action: Review the linked dependency or shared fix with its owner.
+
+  - id: needs-information
+    when:
+      all: [issue_has_reviewed_or_configured_missing_information_state]
+    action: Request the specific missing evidence.
+
+fallback:
+  id: triage-needed
+  action: Diagnose the issue, confirm ownership, and choose the next action.
