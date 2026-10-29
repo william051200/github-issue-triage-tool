@@ -30,3 +30,11 @@ updated from 2026-10-01 through 2026-10-28. Save to output\network.
 ```
 
 For direct execution and flags, see [Python usage](docs/python.md).
+
+## View results
+
+Open `ui\index.html` directly in your browser. Choose `issues.csv` or
+`issues.partial.csv` from a local output folder. Search results, filter by
+priority or verdict, sort by clicking column headers, and open issue or PR links on GitHub.
+Use **Triage rules** to view the default priority and verdict policy.
+No server or additional dependencies are needed; file contents stay in your browser.

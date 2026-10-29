@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>GitHub triage viewer</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="page-width header-content">
+      <h1>Issue triage</h1>
+      <button id="open-rules" type="button" aria-haspopup="dialog">Triage rules</button>
+    </div>
+  </header>
+
+  <main class="page-width">
+    <section class="upload-panel" aria-labelledby="upload-heading">
+      <div>
+        <h2 id="upload-heading">Results CSV</h2>
+      </div>
+      <label class="file-button">
+        Choose CSV file
+        <input id="file-input" type="file" accept=".csv,text/csv" aria-label="Choose triage CSV file">
+      </label>
+    </section>
+    <p id="file-status" class="file-status" role="status">Local file only</p>
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <section class="stats" aria-label="Loaded issue counts">
+      <div class="stat"><span>Total</span><strong id="total-count">0</strong></div>
+      <div class="stat p0"><span>P0</span><strong id="p0-count">0</strong></div>
+      <div class="stat p1"><span>P1</span><strong id="p1-count">0</strong></div>
+      <div class="stat p2"><span>P2</span><strong id="p2-count">0</strong></div>
+    </section>
+
+    <section class="results" aria-labelledby="results-heading">
+      <div class="results-heading">
+        <h2 id="results-heading">Issues</h2>
+        <span id="result-count" role="status">0 issues</span>
+      </div>
+      <div class="filters">
+        <label class="search">Search
+          <input id="search" type="search" placeholder="Search issues or PRs" disabled>
+        </label>
+        <label>Priority
+          <select id="priority" disabled>
+            <option value="">All priorities</option>
+            <option>P0</option>
+            <option>P1</option>
+            <option>P2</option>
+          </select>
+        </label>
+        <label>Verdict
+          <select id="verdict" disabled><option value="">All verdicts</option></select>
+        </label>
+        <button id="clear-filters" type="button" disabled>Clear filters</button>
+      </div>
+      <div class="table-scroll" tabindex="0" role="region" aria-label="Triage results table">
+        <table class="issue-table">
+          <thead>
+            <tr>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="Title" disabled>Issue</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="Priority" disabled>Priority</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="verdict" disabled>Verdict</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="Created time" disabled>Created (UTC)</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="Last updated time" disabled>Updated (UTC)</button></th>
+              <th scope="col" aria-sort="none"><button type="button" data-sort="PR" disabled>Pull requests</button></th>
+            </tr>
+          </thead>
+          <tbody id="issue-rows"></tbody>
+        </table>
+        <p id="empty-state" class="empty-state">Choose a CSV file.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="rules-dialog" aria-labelledby="rules-heading" aria-describedby="rules-note">
+    <div class="dialog-heading">
+      <h2 id="rules-heading">Triage rules</h2>
+      <form method="dialog"><button type="submit" autofocus>Close</button></form>
+    </div>
+    <p id="rules-note">Default policy. Exports may use custom rules; this viewer does not recalculate results.</p>
+    <h3>Priority: P0 first, then P1, then P2</h3>
+    <p>Priority sets queue order, not severity. All priority rules are evaluated; highest priority wins. Explicit P0/P1 is preserved.</p>
+    <ul>
+      <li><strong>P0:</strong> Explicit P0, trusted security fix, accepted link to P0, or low-effort community PR.</li>
+      <li><strong>P1:</strong> Explicit P1, accepted link to P1, community PR, or an unprioritized PR older than 14 days.</li>
+      <li><strong>P2:</strong> No higher rule matched.</li>
+    </ul>
+    <h3>Evidence requirements</h3>
+    <ul>
+      <li><strong>Eligible PR:</strong> Open, unmerged, and confirmed to close the issue or associated by review. Historical PRs do not trigger active rules.</li>
+      <li><strong>Community:</strong> Author verified outside configured Microsoft organizations; excluded Copilot identities do not qualify. Unknown membership is not proof.</li>
+      <li><strong>Low effort:</strong> At most 5 files and 100 added/deleted lines; complete diff, no binary or omitted patches, added/modified tests, successful current-head tests and required checks, non-draft, and confirmed mergeability. Failed, pending, cancelled, unknown, or stale checks block this rule.</li>
+      <li><strong>Overdue:</strong> PR created strictly more than 14 days before the UTC snapshot. Neither issue nor PR has explicit priority; unmapped priority-like labels block this rule.</li>
+      <li><strong>Linked priority:</strong> Direct dependencies, shared confirmed closing PRs, or reviewed relationships. Use explicit priorities, not recursively derived ones or plain URL mentions.</li>
+      <li><strong>Security:</strong> Trusted labels or reviewed evidence; keywords alone do not assign P0.</li>
+    </ul>
+    <h3>Verdict: first matching rule wins</h3>
+    <p>Choose one active PR by highest matched priority, merge readiness, creation time, repository, then PR number. Evaluate that PR's blockers.</p>
+    <ol class="verdict-rules">
+      <li><code>security-review</code> &mdash; Route a trusted fix through the security process, even during partial collection.</li>
+      <li><code>data-incomplete</code> &mdash; Retry required collection failures or restore access.</li>
+      <li><code>ci-fix-needed</code> &mdash; Repair failed current-head CI.</li>
+      <li><code>awaiting-ci</code> &mdash; Wait for pending/running current-head CI.</li>
+      <li><code>pr-update-needed</code> &mdash; Resolve draft status, conflicts, or requested changes.</li>
+      <li><code>verify-release</code> &mdash; Verify a merged fix with no active replacement PR.</li>
+      <li><code>merge-candidate</code> &mdash; Maintainer review of a low-effort community fix; never automatic merging.</li>
+      <li><code>review-overdue</code> &mdash; Prioritize and review the overdue unprioritized PR.</li>
+      <li><code>review-community-pr</code> &mdash; Review the community contribution.</li>
+      <li><code>linked-priority-review</code> &mdash; Review the linked P0/P1 dependency or shared fix.</li>
+      <li><code>needs-information</code> &mdash; Request missing evidence identified by review or configured labels.</li>
+      <li><code>triage-needed</code> &mdash; Fallback: diagnose and confirm ownership.</li>
+    </ol>
+    <p class="rule-sources">Sources:
+      <a href="../priority-rules.yml" target="_blank" rel="noopener">Priority rules</a> /
+      <a href="../verdict-rules.yml" target="_blank" rel="noopener">Verdict rules</a> /
+      <a href="../docs/policy.md" target="_blank" rel="noopener">Policy</a>
+    </p>
+  </dialog>
+</body>
+</html>

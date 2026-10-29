@@ -14,6 +14,8 @@
 | `scripts\triage_rules.py` | YAML validation, UTC dates, and rule evaluation |
 | `scripts\triage_export.py` | CSV, audit, summary, and publication |
 | `tests\test_triage.py` | Offline regression tests |
+| `ui\index.html`, `ui\styles.css`, `ui\app.js` | Local-only CSV viewer |
+| `tests\test_viewer.cjs` | Viewer parsing, filtering, and link validation tests |
 
 ## Versioning
 
@@ -36,6 +38,9 @@ Do not silently truncate REST/GraphQL connections or use capped Search results a
 ## Verification
 
 Run the [test command](python.md#help-and-tests) before and after refactoring.
+
+For viewer changes, run `node --test tests\test_viewer.cjs` with Node.js 18+.
+Open `ui\index.html` in a browser to check file selection and layout; no server is required.
 
 Cover priority precedence, same-PR evidence, community uncertainty, CI freshness, the strict age threshold, historical PRs, and selected-PR blockers. Include date boundaries, offsets, one-sided bounds, malformed settings, config fallback, CLI precedence, pagination, metadata changes, partial exports, overwrite protection, and CSV injection.
 
