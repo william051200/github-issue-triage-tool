@@ -13,9 +13,15 @@
 | `scripts\github_data.py` | Read-only APIs, pagination, and evidence |
 | `scripts\triage_rules.py` | YAML validation, UTC dates, and rule evaluation |
 | `scripts\triage_export.py` | CSV, audit, summary, and publication |
+| `ui\server\cli.cjs` | Node viewer CLI, configuration, and browser launch |
+| `ui\server\exports.cjs` | Async export discovery, snapshot selection, and integrity validation |
+| `ui\server\http.cjs` | Loopback API handling and allowlisted viewer assets |
+| `ui\shared\issues.js` | Pure CSV parsing and issue schema shared by Node and the browser |
 | `tests\test_triage.py` | Offline regression tests |
-| `ui\index.html`, `ui\styles.css`, `ui\app.js` | Local-only CSV viewer |
-| `tests\test_viewer.cjs` | Viewer parsing, filtering, and link validation tests |
+| `ui\tests\test_server.cjs` | Export discovery, integrity, HTTP routes, local-only access, and CLI tests |
+| `ui\public\index.html`, `ui\public\styles.css`, `ui\public\app.js` | Local-only CSV viewer |
+| `ui\tests\test_viewer.cjs` | Viewer parsing, filtering, and link validation tests |
+| `ui\package.json`, `ui\package-lock.json` | Viewer commands and locked Node dependencies |
 
 ## Versioning
 
@@ -39,8 +45,23 @@ Do not silently truncate REST/GraphQL connections or use capped Search results a
 
 Run the [test command](python.md#help-and-tests) before and after refactoring.
 
-For viewer changes, run `node --test tests\test_viewer.cjs` with Node.js 18+.
-Open `ui\index.html` in a browser to check file selection and layout; no server is required.
+For viewer or API changes, install Node.js 22+, run `npm --prefix ui ci`, then
+`npm --prefix ui test` from the repository root.
+Open `ui\public\index.html` in a browser to check file selection and layout; no server is required.
+Run `npm --prefix ui start` to check automatic loading from saved
+exports. The server never invokes collection. Its API uses the newest published
+UTC snapshot, rejects mixed or incomplete publication, and reads only the matching
+CSV beside its summary, including after a repository move. Audit files and arbitrary
+repository files are not HTTP-accessible.
+
+The CLI owns process lifecycle and configuration; HTTP handling owns request policy
+and serialization; the export reader owns filesystem discovery and validation.
+The reader has no HTTP or DOM dependencies. CSV/schema functions are shared without
+browser globals in Node, while classic scripts preserve direct `file:` viewing.
+No framework or build step is required. Collection and its export format stay in
+Python; changing the viewer does not change saved data.
+Node dependencies stay in `ui\node_modules`. With `npm --prefix ui`, relative
+export paths use npm's original caller directory rather than the package directory.
 
 Cover priority precedence, same-PR evidence, community uncertainty, CI freshness, the strict age threshold, historical PRs, and selected-PR blockers. Include date boundaries, offsets, one-sided bounds, malformed settings, config fallback, CLI precedence, pagination, metadata changes, partial exports, overwrite protection, and CSV injection.
 

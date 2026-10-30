@@ -2,11 +2,18 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
-const { runInNewContext } = require("node:vm");
-const { parseCSV, parseIssues, githubURL, filterIssues, sortIssues } = require("../ui/app.js");
+const { createContext, runInContext } = require("node:vm");
+const { parseCSV, parseIssues, githubURL, filterIssues, sortIssues } = require("../public/app.js");
 
 const header = "Issue link,Title,Created time,Last updated time,Priority,verdict,PR";
 const csv = `${header}\r\nhttps://github.com/acme/sdk/issues/7,"Unicode \u4e2d, ""quoted""\r\nsecond line",2026-10-01T10:00:00Z,2026-10-02T11:00:00Z,P0,needs-review,https://github.com/acme/sdk/pull/8;https://github.com/acme/sdk/pull/9\r\nhttps://github.com/acme/cli/issues/2,'=title,2026-10-03T00:00:00Z,2026-10-04T00:00:00Z,P2,no-action,\r\n`;
+
+function runViewer(globals) {
+  const context = createContext(globals);
+  for (const [directory, filename] of [["shared", "issues.js"], ["public", "app.js"]]) {
+    runInContext(readFileSync(join(__dirname, "..", directory, filename), "utf8"), context);
+  }
+}
 
 test("loads exporter CSV with BOM, CRLF, quotes, multiline Unicode, and multiple PRs", () => {
   const issues = parseIssues("\uFEFF" + csv);
@@ -97,6 +104,7 @@ test("clicking the rules backdrop closes the modal, but content and padding do n
         listeners: {},
         addEventListener(type, handler) { this.listeners[type] = handler; },
       });
+
       return elements.get(id);
     },
     querySelectorAll() { return []; },
@@ -105,7 +113,7 @@ test("clicking the rules backdrop closes the modal, but content and padding do n
   dialog.getBoundingClientRect = () => ({ left: 100, right: 700, top: 50, bottom: 650 });
   dialog.showModal = () => { dialog.open = true; };
   dialog.close = () => { dialog.open = false; };
-  runInNewContext(readFileSync(join(__dirname, "..", "ui", "app.js"), "utf8"), { document });
+  runViewer({ document });
   document.getElementById("open-rules").listeners.click();
   assert.equal(dialog.open, true);
   assert.equal(typeof dialog.listeners.click, "function", "Modal must handle backdrop clicks");
@@ -121,4 +129,116 @@ test("clicking the rules backdrop closes the modal, but content and padding do n
     dialog.listeners.click({ clientX, clientY, target: dialog });
     assert.equal(dialog.open, false, "Clicks outside each edge must close the modal");
   }
+});
+
+function apiViewer(fetch, protocol = "http:") {
+  class Element {
+    constructor() {
+      this.listeners = {};
+      this.childNodes = [];
+      this.value = "";
+      this.hidden = true;
+      this.disabled = true;
+    }
+    addEventListener(type, handler) { this.listeners[type] = handler; }
+    append(...nodes) { this.childNodes.push(...nodes); }
+    replaceChildren(...nodes) { this.childNodes = nodes; }
+    add(node) { this.childNodes.push(node); }
+  }
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, new Element());
+      return elements.get(id);
+    },
+    querySelectorAll() { return []; },
+    createElement() { return new Element(); },
+    createDocumentFragment() { return new Element(); },
+  };
+  runViewer({
+    document, location: { protocol }, fetch, URL, Option: Element,
+  });
+  return id => document.getElementById(id);
+}
+
+function apiResult(overrides = {}) {
+  return {
+    filename: "issues.partial.csv", issues: parseIssues(csv),
+    summary: {
+      issue_count: 2, status: "partial", snapshot_time: "2026-10-29T00:00:00Z",
+      warnings: ["Collection incomplete"],
+    },
+    ...overrides,
+  };
+}
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test("HTTP viewer renders results with a concise incomplete-export notice", async () => {
+  const calls = [];
+  const element = apiViewer(async (url, options) => {
+    calls.push([url, options.cache]);
+    return { ok: true, json: async () => apiResult() };
+  });
+  await settle();
+  assert.deepEqual(calls, [["/api/issues/latest", "no-store"]]);
+  assert.equal(element("total-count").textContent, 2);
+  assert.equal(element("p0-count").textContent, 1);
+  assert.equal(element("p2-count").textContent, 1);
+  assert.equal(element("result-count").textContent, "2 of 2 issues");
+  assert.equal(element("error").hidden, true);
+  assert.equal(element("search").disabled, false);
+  assert.equal(element("file-status").textContent, "Results loaded. Export incomplete.");
+});
+
+test("complete API results hide collection diagnostics without an incomplete-export notice", async () => {
+  const result = apiResult();
+  result.filename = "issues.csv";
+  result.summary.status = "complete";
+  result.summary.warnings = ["Required CI configuration is unknown"];
+  const element = apiViewer(async () => ({ ok: true, json: async () => result }));
+  await settle();
+  assert.equal(element("file-status").textContent, "Results loaded.");
+  assert.equal(element("error").hidden, true);
+});
+
+test("API errors and invalid records leave manual CSV loading available", async () => {
+  for (const response of [
+    { ok: false, json: async () => ({ error: "No published exports" }) },
+    { ok: true, json: async () => apiResult({ issues: [{}] }) },
+    { ok: true, json: async () => apiResult({ issues: [] }) },
+    { ok: true, json: async () => { throw new Error("Not JSON"); } },
+  ]) {
+    const element = apiViewer(async () => response);
+    await settle();
+    assert.equal(element("error").hidden, false);
+    assert.match(element("error").textContent, /choose a CSV file instead/);
+    assert.equal(element("search").disabled, true);
+    await element("file-input").listeners.change({
+      target: { files: [{ name: "manual.csv", text: async () => csv }] },
+    });
+    assert.equal(element("total-count").textContent, 2);
+    assert.equal(element("file-status").textContent, "manual.csv");
+    assert.equal(element("error").hidden, true);
+  }
+});
+
+test("an API response or failure cannot replace a newer manual file selection", async () => {
+  for (const ok of [true, false]) {
+    let respond;
+    const element = apiViewer(() => new Promise(resolve => { respond = resolve; }));
+    await element("file-input").listeners.change({
+      target: { files: [{ name: "manual.csv", text: async () => csv }] },
+    });
+    respond({ ok, json: async () => ok ? apiResult() : { error: "API unavailable" } });
+    await settle();
+    assert.equal(element("file-status").textContent, "manual.csv");
+    assert.equal(element("error").hidden, true);
+  }
+});
+
+test("direct local-file viewer never requests the API", () => {
+  let called = false;
+  apiViewer(() => { called = true; }, "file:");
+  assert.equal(called, false);
 });

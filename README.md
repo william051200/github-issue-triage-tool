@@ -2,7 +2,7 @@
 
 ## Setup
 
-Install Python 3.10+ and GitHub CLI. From this folder:
+For collection, install Python 3.10+ and GitHub CLI. From this folder:
 
 ```text
 python -m venv .venv
@@ -20,6 +20,7 @@ Give your agent this request:
 Use SKILL.md in this folder and the project .venv.
 Collect open Compute issues created from 2026-01-01 through today.
 Save results in output\2026.
+Open the UI and load this run's CSV.
 ```
 
 You can specify other repositories, labels, dates, or output folders. For example:
@@ -33,8 +34,15 @@ For direct execution and flags, see [Python usage](docs/python.md).
 
 ## View results
 
-Open `ui\index.html` directly in your browser. Choose `issues.csv` or
-`issues.partial.csv` from a local output folder. Search results, filter by
-priority or verdict, sort by clicking column headers, and open issue or PR links on GitHub.
-Use **Triage rules** to view the default priority and verdict policy.
-No server or additional dependencies are needed; file contents stay in your browser.
+Install Node.js 22+, then run from this folder:
+
+```text
+npm --prefix ui install
+npm --prefix ui start
+```
+
+The viewer opens at `http://127.0.0.1:8000` and loads the latest saved results
+without running collection. Search, filter, and sort issues in your browser.
+
+See the [viewer guide](docs/viewer.md) for agent prompts, specific collections,
+manual CSV loading, and API details.

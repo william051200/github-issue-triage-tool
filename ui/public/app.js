@@ -1,76 +1,7 @@
 "use strict";
 
-const COLUMNS = [
-  "Issue link", "Title", "Created time", "Last updated time", "Priority", "verdict", "PR",
-];
-
-function parseCSV(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let quoted = false;
-  let closedQuote = false;
-  text = text.replace(/^\uFEFF/, "");
-
-  function endField() {
-    row.push(field);
-    field = "";
-    closedQuote = false;
-  }
-
-  function endRow() {
-    endField();
-    if (row.some(value => value !== "")) rows.push(row);
-    row = [];
-  }
-
-  for (let i = 0; i < text.length; i++) {
-    const character = text[i];
-    if (quoted) {
-      if (character === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          quoted = false;
-          closedQuote = true;
-        }
-      } else {
-        field += character;
-      }
-    } else if (character === ",") {
-      endField();
-    } else if (character === "\r" || character === "\n") {
-      if (character === "\r" && text[i + 1] === "\n") i++;
-      endRow();
-    } else if (character === '"' && field === "" && !closedQuote) {
-      quoted = true;
-    } else {
-      if (closedQuote || character === '"') throw new Error("Invalid CSV quoting.");
-      field += character;
-    }
-  }
-  if (quoted) throw new Error("The CSV ends inside a quoted field.");
-  if (field !== "" || row.length || closedQuote) endRow();
-  return rows;
-}
-
-function parseIssues(text) {
-  const [headers, ...rows] = parseCSV(text);
-  if (!headers || COLUMNS.some(column => !headers.includes(column))) {
-    throw new Error(`Choose a triage CSV with these columns: ${COLUMNS.join(", ")}.`);
-  }
-  if (new Set(headers).size !== headers.length) throw new Error("The CSV has duplicate column names.");
-  return rows.map((row, index) => {
-    if (row.length !== headers.length) {
-      throw new Error(`CSV record ${index + 2} has ${row.length} columns; expected ${headers.length}.`);
-    }
-    const issue = Object.fromEntries(headers.map((header, i) => [header, row[i]]));
-    // CSV exports escape spreadsheet formulas; textContent safely displays the original title.
-    if (/^'(?:[\t\r\n]|\s*[=+\-@])/.test(issue.Title)) issue.Title = issue.Title.slice(1);
-    return issue;
-  });
-}
+const { COLUMNS, parseCSV, parseIssues, normalizeIssues } =
+  typeof module !== "undefined" && module.exports ? require("../shared/issues.js") : globalThis.TriageIssues;
 
 function githubURL(value, kind) {
   try {
@@ -217,33 +148,37 @@ function startViewer() {
     render();
   }
 
+  function showIssues(nextIssues, status) {
+    issues = nextIssues;
+    loaded = true;
+    sortColumn = "";
+    sortDirection = "ascending";
+    for (const button of sortButtons) button.disabled = false;
+    updateSortHeaders();
+    const verdicts = [...new Set(issues.map(issue => issue.verdict).filter(Boolean))].sort();
+    elements.verdict.replaceChildren(new Option("All verdicts", ""));
+    for (const verdict of verdicts) elements.verdict.add(new Option(verdict, verdict));
+    for (const id of ["search", "priority", "verdict", "clear-filters"]) elements[id].disabled = false;
+    elements["total-count"].textContent = issues.length;
+    for (const priority of ["P0", "P1", "P2"]) {
+      elements[`${priority.toLowerCase()}-count`].textContent = issues.filter(issue => issue.Priority === priority).length;
+    }
+    elements["file-status"].textContent = status;
+    clearFilters();
+  }
+
   elements["file-input"].addEventListener("change", async event => {
-    const currentSelection = ++selection;
     const file = event.target.files[0];
     if (!file) return;
+    const currentSelection = ++selection;
     elements.error.hidden = true;
     elements["file-status"].textContent = `Reading ${file.name}...`;
     try {
       const nextIssues = parseIssues(await file.text());
       if (currentSelection !== selection) return;
-      issues = nextIssues;
-      loaded = true;
-      sortColumn = "";
-      sortDirection = "ascending";
-      for (const button of sortButtons) button.disabled = false;
-      updateSortHeaders();
-      const verdicts = [...new Set(issues.map(issue => issue.verdict).filter(Boolean))].sort();
-      elements.verdict.replaceChildren(new Option("All verdicts", ""));
-      for (const verdict of verdicts) elements.verdict.add(new Option(verdict, verdict));
-      for (const id of ["search", "priority", "verdict", "clear-filters"]) elements[id].disabled = false;
-      elements["total-count"].textContent = issues.length;
-      for (const priority of ["P0", "P1", "P2"]) {
-        elements[`${priority.toLowerCase()}-count`].textContent = issues.filter(issue => issue.Priority === priority).length;
-      }
-      elements["file-status"].textContent = `${file.name}${
+      showIssues(nextIssues, `${file.name}${
         file.name.includes(".partial.") ? " | Partial export: results may be incomplete" : ""
-      }`;
-      clearFilters();
+      }`);
     } catch (error) {
       if (currentSelection !== selection) return;
       elements.error.textContent = `Could not load ${file.name}: ${error.message}`;
@@ -279,10 +214,34 @@ function startViewer() {
       rulesDialog.close();
     }
   });
+
+  async function loadLatest() {
+    const currentSelection = ++selection;
+    elements["file-status"].textContent = "Loading latest saved export...";
+    try {
+      const response = await fetch("/api/issues/latest", { cache: "no-store" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      const nextIssues = normalizeIssues(result.issues);
+      if (nextIssues.length !== result.summary.issue_count) throw new Error("Export issue count does not match.");
+      if (currentSelection !== selection) return;
+      showIssues(nextIssues, result.summary.status === "partial"
+        ? "Results loaded. Export incomplete." : "Results loaded.");
+      elements.error.hidden = true;
+    } catch (error) {
+      if (currentSelection !== selection) return;
+      elements.error.textContent = `Could not load latest export: ${error.message} You can choose a CSV file instead.`;
+      elements.error.hidden = false;
+      elements["file-status"].textContent = "No file loaded.";
+    }
+  }
+  if (typeof location !== "undefined" && ["http:", "https:"].includes(location.protocol)) {
+    loadLatest();
+  }
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { parseCSV, parseIssues, githubURL, filterIssues, sortIssues };
+  module.exports = { parseCSV, parseIssues, normalizeIssues, githubURL, filterIssues, sortIssues };
 } else {
   startViewer();
 }
