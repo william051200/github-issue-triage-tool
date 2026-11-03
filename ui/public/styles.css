@@ -32,9 +32,9 @@ code { font-size: .9em; }
 .results { background: #fff; border: 1px solid #dce2eb; border-radius: 12px; overflow: hidden; }
 .results-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 22px 24px 0; }
 #result-count { color: #59667b; font-size: .85rem; }
-.filters { display: flex; gap: 14px; align-items: end; padding: 20px 24px; }
+.filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; padding: 20px 24px; }
 .filters label { display: flex; flex-direction: column; gap: 6px; font-size: .8rem; font-weight: 600; }
-.search { flex: 1; }
+.search { flex: 1; min-width: 180px; }
 input, select, button { font: inherit; }
 .filters input, select, button { border: 1px solid #cbd4e1; background: #fff; border-radius: 6px; color: #202c40; padding: 10px 12px; min-height: 42px; }
 .filters input { width: 100%; }
@@ -56,6 +56,9 @@ th[aria-sort]:not([aria-sort="none"]) { color: #2159bc; }
 th button:focus-visible { outline-offset: -3px; }
 tbody tr:hover { background: #fafbfe; }
 td:first-child { min-width: 280px; width: 42%; }
+.suggested-handling { min-width: 320px; }
+.suggested-handling strong { display: block; font-size: .8rem; }
+.suggested-handling p { margin: 6px 0 0; white-space: pre-wrap; }
 a { color: #2159bc; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .issue-title { display: block; font-weight: 600; white-space: pre-wrap; }
 .issue-reference { display: block; margin-top: 5px; font-size: .75rem; color: #64728a; overflow-wrap: anywhere; }

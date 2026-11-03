@@ -13,9 +13,14 @@ This opens `http://127.0.0.1:8000` and loads the latest saved export. Viewing
 does not need Python or browser automation and never runs collection.
 Refresh to read newer saved results. Stop the server with Ctrl+C.
 
-Search results, filter by priority or verdict, sort by clicking column headers,
+Search results, filter by priority, verdict, or suggested handling, sort by clicking column headers,
 and open issue or PR links on GitHub. Use **Triage rules** to view the default
 priority and verdict policy.
+
+When a collection has a sibling `review-summary.json` and `issue-review.csv`,
+the API joins reviewed handling and per-issue next actions by issue URL. It checks
+the review hash, snapshot and exact issue coverage before showing the suggestions.
+Older collections still load; their handling column says **Not reviewed**.
 
 ## Choose a collection
 
@@ -51,8 +56,27 @@ Do not run collection.
 ## Load a CSV manually
 
 Open `ui\public\index.html` directly in your browser and choose `issues.csv` or
-`issues.partial.csv` from a local output folder. Manual file loading needs no
+`issues.partial.csv` from a local output folder. You can also choose
+`issue-review.csv` to view handling and next actions without collector priorities
+or verdicts. Manual file loading needs no
 server or additional dependencies; file contents stay in your browser.
+
+## Collection and review files
+
+A reviewed collection contains two sets of three files:
+
+| File | Purpose |
+|---|---|
+| `issues.csv` / `issues.partial.csv` | Collected issues, deterministic priorities, verdicts and PR links |
+| `issues.audit.jsonl` / `issues.partial.audit.jsonl` | Per-issue collection evidence and rule decisions |
+| `run-summary.json` / `run-summary.partial.json` | Collection scope, counts, diagnostics and integrity hashes |
+| `issue-review.csv` | Per-issue review categories, assessments, suggested next actions and evidence links |
+| `issue-review.json` | The same reviewed results in structured JSON |
+| `review-summary.json` | Review coverage, category counts, limitations and integrity hashes |
+
+The viewer reads the collection CSV and summary, plus the review CSV and summary
+when present. The audit and review JSON are for inspection or other tooling.
+Review coverage does not change a partial collection's status.
 
 ## Local API
 

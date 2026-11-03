@@ -3,10 +3,12 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { createContext, runInContext } = require("node:vm");
-const { parseCSV, parseIssues, githubURL, filterIssues, sortIssues } = require("../public/app.js");
+const { parseCSV, parseIssues, normalizeIssues, githubURL, filterIssues, sortIssues } = require("../public/app.js");
 
 const header = "Issue link,Title,Created time,Last updated time,Priority,verdict,PR";
 const csv = `${header}\r\nhttps://github.com/acme/sdk/issues/7,"Unicode \u4e2d, ""quoted""\r\nsecond line",2026-10-01T10:00:00Z,2026-10-02T11:00:00Z,P0,needs-review,https://github.com/acme/sdk/pull/8;https://github.com/acme/sdk/pull/9\r\nhttps://github.com/acme/cli/issues/2,'=title,2026-10-03T00:00:00Z,2026-10-04T00:00:00Z,P2,no-action,\r\n`;
+const reviewCSV = "Issue link,Title,Created time,Last updated time,Category,Suggested next action\n" +
+  "https://github.com/acme/sdk/issues/7,Review this,2026-10-01T00:00:00Z,2026-10-02T00:00:00Z,active-pr,Check private VM access\n";
 
 function runViewer(globals) {
   const context = createContext(globals);
@@ -36,6 +38,17 @@ test("rejects wrong formats, truncated records, duplicate headers, and malformed
     `${header}\n"a"x,b,c,d,e,f,g`, `${header}\na"b,c,d,e,f,g,h`]) {
     assert.throws(() => parseIssues(invalid));
   }
+});
+
+test("manual review CSVs retain handling and default absent triage fields without accepting malformed reviews", () => {
+  const [issue] = parseIssues("\uFEFF" + reviewCSV);
+  assert.equal(issue.Category, "active-pr");
+  assert.equal(issue["Suggested next action"], "Check private VM access");
+  assert.equal(issue.Priority, "");
+  assert.equal(issue.verdict, "");
+  assert.equal(issue.PR, "");
+  assert.throws(() => parseIssues(reviewCSV.replace(",Suggested next action", ",Wrong column")));
+  assert.throws(() => normalizeIssues([{ ...issue, "Suggested next action": 7 }]));
 });
 
 test("filters by title, repository, issue and PR, combined with priority and verdict", () => {
@@ -96,6 +109,18 @@ test("sorting composes with existing filters", () => {
   assert.equal(issues.length, 2);
 });
 
+test("handling filters combine with search, priority and verdict, including legacy records", () => {
+  const issues = parseIssues(csv);
+  issues[0].Category = "active-pr";
+  issues[0]["Suggested next action"] = "Check private VM access";
+  assert.deepEqual(filterIssues(issues, "private", "P0", "needs-review", "active-pr"), [issues[0]]);
+  assert.deepEqual(filterIssues(issues, "", "P2", "", "active-pr"), []);
+  assert.deepEqual(filterIssues(issues, "", "", "", "no-approach-visible"), []);
+  assert.deepEqual(filterIssues(issues, "unblock", "", "", ""), [issues[0]]);
+  assert.equal(filterIssues(issues, "", "", "").length, 2);
+  assert.deepEqual(sortIssues(issues, "Category"), [issues[0], issues[1]]);
+});
+
 test("clicking the rules backdrop closes the modal, but content and padding do not", () => {
   const elements = new Map();
   const document = {
@@ -133,10 +158,11 @@ test("clicking the rules backdrop closes the modal, but content and padding do n
 
 function apiViewer(fetch, protocol = "http:") {
   class Element {
-    constructor() {
+    constructor(text = "", value = "") {
       this.listeners = {};
       this.childNodes = [];
-      this.value = "";
+      this.value = value;
+      this.textContent = text;
       this.hidden = true;
       this.disabled = true;
     }
@@ -189,6 +215,45 @@ test("HTTP viewer renders results with a concise incomplete-export notice", asyn
   assert.equal(element("error").hidden, true);
   assert.equal(element("search").disabled, false);
   assert.equal(element("file-status").textContent, "Results loaded. Export incomplete.");
+  assert.equal(element("handling").disabled, true);
+});
+
+test("reviewed API results display next actions, populate handling options and filter/reset rendered rows", async () => {
+  const result = apiResult();
+  Object.assign(result.issues[0], {
+    Category: "active-pr", "Suggested next action": "Check private VM access <not HTML>",
+  });
+  Object.assign(result.issues[1], {
+    Category: "needs-information", "Suggested next action": "Provide the failing command",
+  });
+  const element = apiViewer(async () => ({ ok: true, json: async () => result }));
+  await settle();
+  assert.equal(element("handling").disabled, false);
+  assert.deepEqual(element("handling").childNodes.map(option => option.value),
+    ["", "active-pr", "needs-information"]);
+  const handlingCell = element("issue-rows").childNodes[0].childNodes[0].childNodes[3];
+  assert.equal(handlingCell.childNodes[0].textContent, "Review or unblock existing PR");
+  assert.equal(handlingCell.childNodes[1].textContent, "Check private VM access <not HTML>");
+  element("handling").value = "needs-information";
+  element("handling").listeners.change();
+  assert.equal(element("result-count").textContent, "1 of 2 issues");
+  element("priority").value = "P0";
+  element("priority").listeners.change();
+  assert.equal(element("result-count").textContent, "0 of 2 issues");
+  assert.equal(element("empty-state").hidden, false);
+  element("clear-filters").listeners.click();
+  assert.equal(element("handling").value, "");
+  assert.equal(element("result-count").textContent, "2 of 2 issues");
+  await element("file-input").listeners.change({
+    target: { files: [{ name: "issue-review.csv", text: async () => reviewCSV }] },
+  });
+  assert.equal(element("result-count").textContent, "1 of 1 issues");
+  assert.equal(element("handling").childNodes.length, 2);
+  await element("file-input").listeners.change({
+    target: { files: [{ name: "issues.csv", text: async () => csv }] },
+  });
+  assert.equal(element("handling").disabled, true);
+  assert.equal(element("result-count").textContent, "2 of 2 issues");
 });
 
 test("complete API results hide collection diagnostics without an incomplete-export notice", async () => {

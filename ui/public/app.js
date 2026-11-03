@@ -1,7 +1,22 @@
 "use strict";
 
-const { COLUMNS, parseCSV, parseIssues, normalizeIssues } =
+const { COLUMNS, REVIEW_FIELDS, parseCSV, parseIssues, normalizeIssues } =
   typeof module !== "undefined" && module.exports ? require("../shared/issues.js") : globalThis.TriageIssues;
+
+const HANDLING_LABELS = {
+  addressed: "Verify fix or resolution",
+  "partially-addressed": "Isolate remaining problem",
+  "active-pr": "Review or unblock existing PR",
+  "approach-known": "Validate known approach",
+  "no-approach-visible": "Investigate and propose solution",
+  "needs-information": "Supply missing evidence",
+  "external-dependency": "Coordinate with component owner",
+  "abandoned-attempt": "Confirm whether to revive",
+};
+
+function handlingLabel(category) {
+  return Object.hasOwn(HANDLING_LABELS, category) ? HANDLING_LABELS[category] : category || "Not reviewed";
+}
 
 function githubURL(value, kind) {
   try {
@@ -16,12 +31,14 @@ function githubURL(value, kind) {
   return null;
 }
 
-function filterIssues(issues, search, priority, verdict) {
+function filterIssues(issues, search, priority, verdict, handling = "") {
   const query = search.trim().toLowerCase();
   return issues.filter(issue =>
     (!priority || issue.Priority === priority) &&
     (!verdict || issue.verdict === verdict) &&
-    (!query || COLUMNS.some(column => issue[column].toLowerCase().includes(query)))
+    (!handling || issue.Category === handling) &&
+    (!query || [...COLUMNS, ...REVIEW_FIELDS].some(column => (issue[column] || "").toLowerCase().includes(query)) ||
+      handlingLabel(issue.Category).toLowerCase().includes(query))
   );
 }
 
@@ -30,7 +47,7 @@ function sortIssues(issues, column, direction = "ascending") {
   if (!column) return sorted;
   const isDate = column === "Created time" || column === "Last updated time";
   function value(issue) {
-    const raw = issue[column];
+    const raw = issue[column] || "";
     if (!raw.trim()) return null;
     if (isDate) {
       const timestamp = Date.parse(raw);
@@ -53,7 +70,7 @@ function sortIssues(issues, column, direction = "ascending") {
 function startViewer() {
   const elements = Object.fromEntries([
     "file-input", "file-status", "error", "total-count", "p0-count", "p1-count",
-    "p2-count", "search", "priority", "verdict", "clear-filters", "result-count",
+    "p2-count", "search", "priority", "verdict", "handling", "clear-filters", "result-count",
     "issue-rows", "empty-state",
   ].map(id => [id, document.getElementById(id)]));
   let issues = [];
@@ -108,7 +125,7 @@ function startViewer() {
 
   function render() {
     const visible = sortIssues(
-      filterIssues(issues, elements.search.value, elements.priority.value, elements.verdict.value),
+      filterIssues(issues, elements.search.value, elements.priority.value, elements.verdict.value, elements.handling.value),
       sortColumn, sortDirection,
     );
     const fragment = document.createDocumentFragment();
@@ -126,12 +143,22 @@ function startViewer() {
       priority.append(badge);
       const verdict = document.createElement("td");
       verdict.textContent = issue.verdict || "-";
+      const handling = document.createElement("td");
+      handling.className = "suggested-handling";
+      const label = document.createElement("strong");
+      label.textContent = handlingLabel(issue.Category);
+      handling.append(label);
+      if (issue["Suggested next action"]) {
+        const action = document.createElement("p");
+        action.textContent = issue["Suggested next action"];
+        handling.append(action);
+      }
       const prs = document.createElement("td");
       for (const value of issue.PR.split(";").map(value => value.trim()).filter(Boolean)) {
         prs.append(link(value, "pull", reference(value, "pull"), "pr-link"));
       }
       if (!prs.childNodes.length) prs.textContent = "-";
-      row.append(title, priority, verdict, dateCell(issue["Created time"]), dateCell(issue["Last updated time"]), prs);
+      row.append(title, priority, verdict, handling, dateCell(issue["Created time"]), dateCell(issue["Last updated time"]), prs);
       fragment.append(row);
     }
     elements["issue-rows"].replaceChildren(fragment);
@@ -145,6 +172,7 @@ function startViewer() {
     elements.search.value = "";
     elements.priority.value = "";
     elements.verdict.value = "";
+    elements.handling.value = "";
     render();
   }
 
@@ -158,6 +186,12 @@ function startViewer() {
     const verdicts = [...new Set(issues.map(issue => issue.verdict).filter(Boolean))].sort();
     elements.verdict.replaceChildren(new Option("All verdicts", ""));
     for (const verdict of verdicts) elements.verdict.add(new Option(verdict, verdict));
+    const categories = [...new Set(issues.map(issue => issue.Category).filter(Boolean))].sort();
+    elements.handling.replaceChildren(new Option("All suggested handling", ""));
+    for (const category of categories) {
+      elements.handling.add(new Option(handlingLabel(category), category));
+    }
+    elements.handling.disabled = categories.length === 0;
     for (const id of ["search", "priority", "verdict", "clear-filters"]) elements[id].disabled = false;
     elements["total-count"].textContent = issues.length;
     for (const priority of ["P0", "P1", "P2"]) {
@@ -191,6 +225,7 @@ function startViewer() {
   elements.search.addEventListener("input", render);
   elements.priority.addEventListener("change", render);
   elements.verdict.addEventListener("change", render);
+  elements.handling.addEventListener("change", render);
   elements["clear-filters"].addEventListener("click", clearFilters);
   for (const button of sortButtons) {
     button.addEventListener("click", () => {

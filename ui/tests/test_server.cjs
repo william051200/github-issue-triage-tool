@@ -13,7 +13,7 @@ const { fileURLToPath, pathToFileURL } = require("node:url");
 const { ExportNotFoundError, findLatestExport, readExport, latestExport } = require("../server/exports.cjs");
 const { createViewerServer } = require("../server/http.cjs");
 const { parseOptions, resolveDirectories } = require("../server/cli.cjs");
-const { COLUMNS } = require("../shared/issues.js");
+const { COLUMNS, REVIEW_COLUMNS } = require("../shared/issues.js");
 
 const ROOT = resolve(__dirname, "..");
 const sha256 = data => createHash("sha256").update(data).digest("hex");
@@ -53,6 +53,63 @@ async function publish(root, {
   await writeFile(summaryPath, JSON.stringify(summary));
   return { csvPath, summaryPath, summary, data };
 }
+
+async function publishReview(directory) {
+  const records = [
+    REVIEW_COLUMNS,
+    ["https://github.com/acme/sdk/issues/7", "Reviewed title",
+      "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z", "active-pr", "Check private VM access"],
+  ];
+  const data = Buffer.from(records.map(row => row.join(",")).join("\n") + "\n");
+  const csvPath = join(directory, "issue-review.csv");
+  const summaryPath = join(directory, "review-summary.json");
+  const summary = {
+    status: "complete", snapshot_time: "2026-10-29T01:01:00Z", issue_count: 1,
+    artifact_sha256: { csv: sha256(data) },
+  };
+  await writeFile(csvPath, data);
+  await writeFile(summaryPath, JSON.stringify(summary));
+  return { csvPath, summaryPath, summary, data };
+}
+
+test("joins sibling review handling by issue URL without overwriting collector fields or partial status", async t => {
+  const directory = await temporaryDirectory(t);
+  const { csvPath } = await publish(directory, { partial: true });
+  await publishReview(dirname(csvPath));
+  const result = await latestExport([directory]);
+  assert.equal(result.issues[0].Category, "active-pr");
+  assert.equal(result.issues[0]["Suggested next action"], "Check private VM access");
+  assert.equal(result.issues[0].Priority, "P1");
+  assert.equal(result.issues[0].verdict, "data-incomplete");
+  assert.equal(result.issues[0].Title, "'=Unicode \u4e2d,\r\n\"quoted\"");
+  assert.equal(result.summary.status, "partial");
+  assert.equal(result.summary.review.filename, "issue-review.csv");
+  assert.equal(result.summary.review.issue_count, 1);
+});
+
+test("rejects stale, corrupt, incomplete and mismatched review sidecars instead of showing incorrect handling", async t => {
+  const directory = await temporaryDirectory(t);
+  const { csvPath } = await publish(directory);
+  const review = await publishReview(dirname(csvPath));
+  for (const change of [
+    { status: "partial" }, { snapshot_time: "2026-10-28T00:00:00Z" },
+    { issue_count: 2 }, { artifact_sha256: { csv: "incorrect" } },
+  ]) {
+    await writeFile(review.summaryPath, JSON.stringify({ ...review.summary, ...change }));
+    await assert.rejects(latestExport([directory]));
+  }
+  for (const data of [
+    Buffer.from(review.data.toString().replace("/issues/7", "/issues/8")),
+    Buffer.concat([review.data, Buffer.from(review.data.toString().split("\n")[1] + "\n")]),
+    Buffer.from(review.data.toString().replace("Suggested next action", "Wrong column")),
+  ]) {
+    await writeFile(review.csvPath, data);
+    await writeFile(review.summaryPath, JSON.stringify({
+      ...review.summary, artifact_sha256: { csv: sha256(data) },
+    }));
+    await assert.rejects(latestExport([directory]));
+  }
+});
 
 test("selects newest UTC snapshot including partial runs across multiple roots", async t => {
   const directory = await temporaryDirectory(t);

@@ -4,6 +4,10 @@
   const COLUMNS = [
     "Issue link", "Title", "Created time", "Last updated time", "Priority", "verdict", "PR",
   ];
+  const REVIEW_COLUMNS = [
+    "Issue link", "Title", "Created time", "Last updated time", "Category", "Suggested next action",
+  ];
+  const REVIEW_FIELDS = ["Category", "Suggested next action", "Assessment", "Evidence URLs", "Confidence", "Caveat"];
 
   function parseCSV(text) {
     const rows = [];
@@ -58,8 +62,8 @@
 
   function parseIssueRecords(text) {
     const [headers, ...rows] = parseCSV(text);
-    if (!headers || COLUMNS.some(column => !headers.includes(column))) {
-      throw new Error(`Choose a triage CSV with these columns: ${COLUMNS.join(", ")}.`);
+    if (!headers || ![COLUMNS, REVIEW_COLUMNS].some(columns => columns.every(column => headers.includes(column)))) {
+      throw new Error("Choose a triage CSV or an issue review CSV with issue links, titles, dates, categories and suggested next actions.");
     }
     if (new Set(headers).size !== headers.length) throw new Error("The CSV has duplicate column names.");
     return rows.map((row, index) => {
@@ -73,10 +77,12 @@
   function normalizeIssues(issues) {
     if (!Array.isArray(issues)) throw new Error("Expected an array of issues.");
     return issues.map(record => {
-      if (!record || COLUMNS.some(column => typeof record[column] !== "string")) {
+      if (!record || ![COLUMNS, REVIEW_COLUMNS].some(columns =>
+        columns.every(column => typeof record[column] === "string")) ||
+        REVIEW_FIELDS.some(column => Object.hasOwn(record, column) && typeof record[column] !== "string")) {
         throw new Error("Issue record has invalid or missing columns.");
       }
-      const issue = { ...record };
+      const issue = { ...Object.fromEntries(COLUMNS.map(column => [column, ""])), ...record };
       // CSV exports escape spreadsheet formulas; textContent safely displays the original title.
       if (/^'(?:[\t\r\n]|\s*[=+\-@])/.test(issue.Title)) issue.Title = issue.Title.slice(1);
       return issue;
@@ -87,7 +93,7 @@
     return normalizeIssues(parseIssueRecords(text));
   }
 
-  const api = { COLUMNS, parseCSV, parseIssueRecords, normalizeIssues, parseIssues };
+  const api = { COLUMNS, REVIEW_COLUMNS, REVIEW_FIELDS, parseCSV, parseIssueRecords, normalizeIssues, parseIssues };
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   } else {
