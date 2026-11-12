@@ -1,5 +1,19 @@
 # GitHub issue triage
 
+## Choose a workflow
+
+The general workflow below collects and reviews issues by repository and label,
+then opens the viewer. For a deeper investigation of one issue, use the separate
+[targeted issue-triage skill](.github/skills/issue-triage/README.md):
+
+```text
+Use issue-triage to investigate https://github.com/<owner>/<repo>/issues/<number>.
+```
+
+Targeted triage saves a detailed Markdown report with evidence, proposed fixes
+and tests, and a suggested issue comment. It does not run collection or open the
+viewer. Use one workflow at a time; combine them only when explicitly requested.
+
 ## Setup
 
 Install Python 3.10+, GitHub CLI, and Node.js 22+. Run from this folder:

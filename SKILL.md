@@ -5,6 +5,12 @@ description: Collect and review open GitHub issues from a repository and label, 
 
 # GitHub issue triage
 
+This is the general collection and review workflow. For a detailed investigation
+of a specific issue, use [issue-triage](.github/skills/issue-triage/SKILL.md)
+instead. Do not automatically invoke that skill during or after this workflow.
+Run both only when the user explicitly requests both, with separate scopes and
+outputs.
+
 Resolve paths from this skill directory. For collection, prefer `.venv\Scripts\python.exe`; otherwise use an available Python 3.10+ interpreter with `requirements.txt` installed. The automatic viewer uses Node.js 22+; Python is not needed to view saved exports.
 
 ## Default request and workflow

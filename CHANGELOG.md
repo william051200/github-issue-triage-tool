@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.5 - 2026-11-12
+
+Add a repository-independent `issue-triage` skill for detailed investigation of a
+specific issue, safe reproduction, proposed fixes and tests, and a seven-section
+Markdown report with a suggested issue comment. Document targeted usage and keep
+it separate from the general collection and viewer workflow unless the user
+explicitly requests both.
+
 ## 0.0.4 - 2026-11-12
 
 Add bounded concurrent GitHub issue collection with a CPU-based default capped at
