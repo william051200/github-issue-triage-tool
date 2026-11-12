@@ -22,6 +22,45 @@ the API joins reviewed handling and per-issue next actions by issue URL. It chec
 the review hash, snapshot and exact issue coverage before showing the suggestions.
 Older collections still load; their handling column says **Not reviewed**.
 
+## Recommended triage order
+
+Use the existing filters to choose work in this order. Check urgent impact first,
+then favor issues with an existing solution, a confirmed duplicate, or evidence
+that they have already been addressed. Keep the verdict filter at **All verdicts**
+unless checking a specific PR blocker.
+
+| Order | Handling or filter | Action |
+|---|---|---|
+| 1 | Priority P0/P1 | Check for urgent impact. These are triage priorities and do not establish urgency or severity on their own. |
+| 2 | Verify fix or resolution | Verify the affected scenario and released fix before recommending closure. For duplicates, confirm the canonical issue and matching scope. |
+| 3 | Validate known approach | Favor concrete documentation fixes or proven solutions. A workaround does not establish low implementation effort. |
+| 4 | Review or unblock existing PR | Help existing work before opening another fix. |
+| 5 | Confirm whether to revive; sort Updated oldest first | Recheck outdated attempts before restarting work. Age alone is not grounds for closure. |
+| 6 | Supply missing evidence | Request specific information, then park the issue until the user responds. |
+| 7 | Isolate remaining problem; Coordinate with component owner; Investigate and propose solution | Leave broader implementation, external coordination and uncertain work until later. |
+
+For existing PRs, inspect `review-overdue` for review opportunities.
+`ci-fix-needed` and `pr-update-needed` indicate additional work; neither means
+the fix is necessarily quick.
+
+### Starting point in the November 3, 2026 report
+
+The saved partial collection contains 250 issues. Its reviewed handling counts
+are 7 addressed, 97 with a known approach, 12 with an active PR, 5 abandoned
+attempts, 40 needing information, 3 partially addressed, 32 with an external
+dependency, and 54 with no visible approach. Seven issues have P1 priority;
+those overlap the active-PR group.
+
+Start with **Verify fix or resolution** and **All verdicts**. All 7 addressed
+issues have the collector verdict `triage-needed`, so requiring `verify-release`
+would hide them. The broader evidence review and the collector verdict are
+separate assessments. Reported resolution still needs current scenario and
+release verification.
+
+These counts describe the saved November 3 snapshot, not a live GitHub check.
+This work order is guidance for manual filtering; it does not change UI sorting,
+saved priorities, verdicts or exports.
+
 ## Choose a collection
 
 The server scans `output` and the configured output directory. "Latest" means the

@@ -2,47 +2,36 @@
 
 ## Setup
 
-For collection, install Python 3.10+ and GitHub CLI. From this folder:
+Install Python 3.10+, GitHub CLI, and Node.js 22+. Run from this folder:
 
 ```text
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 gh auth login
+npm --prefix ui install
 ```
-
-Copy `defaults.example.yml` to `defaults.yml` and edit the repositories, labels, dates, or output directory. See [configuration options](docs/configuration.md). Local defaults and results are ignored by Git.
 
 ## Run with an agent
 
-Give your agent this request:
+Replace the placeholders, then give your agent this prompt:
 
 ```text
 Use SKILL.md in this folder and the project .venv.
-Collect open Compute issues created from 2026-01-01 through today.
-Save results in output\2026.
-Open the UI and load this run's CSV.
+Collect all open issues labeled <label> in <owner/repo>,
+created from <YYYY-MM-DD> through <YYYY-MM-DD>.
+Review every issue's body, comments, and linked issues/PRs.
+Provide evidence-backed suggested handling and a concrete next action for each.
+Save the collection and viewer-compatible review files in a new folder under output.
+Open this collection in the UI and verify suggested handling and next actions load.
 ```
 
-You can specify other repositories, labels, dates, or output folders. For example:
+For example, use `Compute` and `Azure/azure-cli`. Replace the date line with
+`with no date bounds` to include all matching open issues.
+
+## View latest result
 
 ```text
-Use SKILL.md to triage Azure/azure-cli issues labeled Network
-updated from 2026-10-01 through 2026-10-28. Save to output\network.
+Use SKILL.md in this folder.
+Open the UI and load the latest collected results, including saved suggested
+handling and next actions. Do not collect or review again.
 ```
-
-For direct execution and flags, see [Python usage](docs/python.md).
-
-## View results
-
-Install Node.js 22+, then run from this folder:
-
-```text
-npm --prefix ui install
-npm --prefix ui start
-```
-
-The viewer opens at `http://127.0.0.1:8000` and loads the latest saved results
-without running collection. Search, filter, and sort issues in your browser.
-
-See the [viewer guide](docs/viewer.md) for agent prompts, specific collections,
-manual CSV loading, and API details.
