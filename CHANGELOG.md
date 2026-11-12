@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.4 - 2026-11-12
+
+Add bounded concurrent GitHub issue collection with a CPU-based default capped at
+four workers and a `--workers` override for resource-aware or serial execution.
+Protect shared API state, stop new requests after exhausted rate limits, and
+retain pending results when pagination fails. Allow resource-sized sub-agent
+review batches with coordinator-owned coverage validation and final publication.
+
 ## 0.0.3 - 2026-11-12
 
 Make repository and label prompts trigger collection, evidence review, saved

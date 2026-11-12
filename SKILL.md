@@ -56,6 +56,8 @@ workflow above deliberately uses the example config to guarantee its date scope.
 - `--date-field updated` selects last-update time; the shipped default is creation time.
 - Calendar end dates include the whole UTC day; timestamp end bounds are exclusive.
 - `--output-dir` sets the destination; `--config` selects another defaults file.
+- `--workers N` bounds concurrent issue collectors; default is logical CPU count
+  capped at 4. Use `1` for serial collection or constrained environments.
 - Never add `--force` without permission to replace exports.
 
 Invoke the selected interpreter with the absolute script path and requested flags. If PyYAML is missing, install `requirements.txt` with that interpreter.
@@ -85,6 +87,48 @@ If required evidence is inaccessible, preserve draft results and report the revi
 as incomplete; do not publish a `complete` review summary or claim the UI loaded a
 completed review. Reviewing every row of a partial collection does not make the
 collection complete.
+
+## Resource-aware parallel work
+
+For a collection too large for one agent to review efficiently, use sub-agents
+when the host provides them. Do not require delegation for small collections.
+Choose the number of active agents from available agent slots, CPU and memory
+headroom, model/service limits, and GitHub rate-limit capacity. Leave resources
+for the coordinator and other users. If resource information is unavailable,
+start with at most two review agents and increase only when capacity is observed.
+Reduce concurrency or use serial work when limits, memory pressure, or retries
+appear. Never bypass host limits or install a separate agent orchestration service.
+
+The coordinator owns the issue manifest and assigns disjoint URL batches.
+Balance batches by discussion/PR complexity, not just issue count. Give each
+sub-agent its exact issue URLs, evidence requirements, review schema, read-only
+safety rules, and a distinct local draft destination. Each sub-agent reviews
+all required evidence for its assigned issues and returns structured rows,
+evidence gaps, and completion status. Do not have sub-agents recursively delegate
+or write the shared final CSV, JSON, or summary.
+
+Merge completed batches by exact issue URL. Validate no missing, duplicate, or
+out-of-scope rows, required fields and evidence, and consistent category values
+before the coordinator alone publishes review artifacts and hashes. Reassign
+only unfinished issues after a failed batch; never count a failed batch as
+reviewed. Preserve collection partial status and review evidence limitations.
+
+For GitHub collection, keep one `triage.py` coordinator and use `--workers N`.
+It overlaps per-issue evidence reads through a bounded thread pool, using the
+existing `gh` subprocess transport. Default concurrency is CPU-based and capped
+at four; lower it for limited memory, busy shared hosts, or scarce API quota.
+Increase it explicitly only when measured resources and quota support that.
+Issue enumeration remains paginated; assessment, head verification, and export
+publication remain coordinator-owned. Do not launch independent collectors
+against the same output folder or duplicate the same issue scope.
+
+Collection workers share the API cache and request counter safely. Existing
+bounded retries remain in effect; exhausted rate limits stop new network
+requests for the run, retaining known evidence and partial-run warnings.
+Already-running requests may finish. Parallel review agents must also respect
+the shared GitHub quota; do not multiply collection and review concurrency
+without accounting for total load. If sub-agent or worker capacity is unavailable,
+continue serially without skipping issues.
 
 ## Show results in the UI
 

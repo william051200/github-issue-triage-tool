@@ -32,11 +32,30 @@ CLI values override [local defaults](configuration.md). Relative output paths us
 | `--from value`, `--to value` | Optional date/time bounds. |
 | `--output-dir path` | Set the export directory. |
 | `--force` | Permit replacement of existing exports. |
+| `--workers N` | Positive concurrent issue-worker limit; defaults to logical CPU count capped at 4. Use `1` for serial collection. |
 | `--priority-rules path`, `--verdict-rules path` | Use alternative policy files. |
 | `--overrides path` | Load reviewed issue/author decisions. |
 | `--membership-inventory path` | Load an authorized organization inventory. |
 
 State is always open. Standard output is a compact JSON summary. Exit codes: `0` complete, `1` partial, `2` invalid input or fatal failure. See [outputs](output.md).
+
+## Parallel collection
+
+The collector uses a bounded thread pool to overlap GitHub evidence requests for
+different issues. Each request still uses the existing `gh` subprocess transport;
+no separate process pool or extra package is required. Pagination and final
+assessment/export remain coordinated by one process. Output sorting is unchanged.
+
+Choose `--workers` using CPU/memory headroom and available GitHub quota, not CPU
+count alone. The automatic default is conservative but does not measure free
+memory or API quota. Use `--workers 1` on a constrained host; raise the limit only
+when observed capacity supports it.
+
+Workers retain bounded retries and share a thread-safe API cache and request
+count. If rate-limit retries are exhausted or the required wait exceeds the
+retry budget, new uncached requests stop for the run. Already-running requests
+can finish. Missing evidence and unfinished enumeration produce a partial export,
+not silently omitted issues. Retry later in a new output folder.
 
 ## Dates
 

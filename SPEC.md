@@ -14,6 +14,7 @@ opens and verifies the local viewer.
 - Evaluate each PR separately, select the highest matched priority, then assign an action verdict.
 - Keep unknown evidence, failed collection, and confirmed facts distinct.
 - Preserve existing exports unless replacement is authorized.
+- Bound concurrent issue collection by available resources and API quota. Large agent reviews may use disjoint sub-agent batches; one coordinator validates exact coverage and publishes final files. Serial execution must remain available.
 
 ## References
 

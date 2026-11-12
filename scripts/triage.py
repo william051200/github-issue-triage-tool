@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
+from threading import local
 
 try:
     from github_data import APIError, Collector, GitHubAPI, validate_local_inputs, validate_repository
@@ -32,6 +36,16 @@ class Parser(argparse.ArgumentParser):
         raise ConfigurationError(message)
 
 
+def worker_count(value):
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("workers must be a positive integer") from exc
+    if count < 1:
+        raise argparse.ArgumentTypeError("workers must be a positive integer")
+    return count
+
+
 def parser():
     result = Parser(description=__doc__)
     result.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
@@ -46,11 +60,42 @@ def parser():
     result.add_argument("--to", dest="to_date", help="inclusive calendar date or exclusive timestamp")
     result.add_argument("--output-dir", type=Path, help="output directory; overrides config")
     result.add_argument("--force", action="store_true", help="allow replacing existing exports")
+    result.add_argument(
+        "--workers", type=worker_count, default=min(4, os.cpu_count() or 1),
+        help="concurrent issue collectors (default: CPU count capped at 4; 1 is serial)",
+    )
     result.add_argument("--priority-rules", type=Path, default=SKILL_DIRECTORY / "priority-rules.yml")
     result.add_argument("--verdict-rules", type=Path, default=SKILL_DIRECTORY / "verdict-rules.yml")
     result.add_argument("--overrides", type=Path, help="reviewed local YAML decisions")
     result.add_argument("--membership-inventory", type=Path, help="reviewed organization membership YAML")
     return result
+
+
+def collect_records(collector, issues, workers):
+    state = local()
+
+    def collect(issue):
+        if workers == 1:
+            worker = collector
+        else:
+            if not hasattr(state, "collector"):
+                state.collector = Collector(
+                    collector.api, collector.policy, collector.overrides, collector.inventory,
+                )
+            worker = state.collector
+        return worker.collect(issue)
+
+    if workers == 1:
+        yield from map(collect, issues)
+        return
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        pending = deque()
+        for issue in issues:
+            pending.append(executor.submit(collect, issue))
+            if len(pending) >= workers:
+                yield pending.popleft().result()
+        while pending:
+            yield pending.popleft().result()
 
 
 def run(args, api=None, snapshot=None):
@@ -87,11 +132,20 @@ def run(args, api=None, snapshot=None):
     collector = Collector(api, policy, overrides, inventory)
     collector.validate_scope(repositories, labels)
     records, warnings, failures, repository_counts = {}, [], [], {}
+
+    def scoped_issues(repository):
+        try:
+            yield from collector.issues(repository, labels, label_match, dates)
+        except APIError as exc:
+            failures.append(repository)
+            warnings.append(f"{repository}: enumeration incomplete: {exc}")
+
     for repository in repositories:
         repository_counts[repository] = 0
         try:
-            for issue in collector.issues(repository, labels, label_match, dates):
-                record = collector.collect(issue)
+            for record in collect_records(
+                collector, scoped_issues(repository), args.workers,
+            ):
                 if record["state"] != "open" or not dates.includes(record):
                     continue
                 current_labels = set(record["labels"])
@@ -123,6 +177,7 @@ def run(args, api=None, snapshot=None):
         "parameters": {
             "repositories": repositories, "labels": labels,
             "label_match": label_match, "state": "open",
+            "workers": args.workers,
         },
         "repository_counts": repository_counts,
         "failures": sorted(set(failures)),

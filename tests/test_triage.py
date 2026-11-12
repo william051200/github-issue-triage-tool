@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Barrier, Lock
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
@@ -384,6 +385,24 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(GitHubAPI().get("repos/example/project"), [])
         sleep.assert_called_once_with(2)
 
+    @patch("github_data.subprocess.run")
+    def test_exhausted_rate_limit_stops_new_requests_but_keeps_cached_evidence(self, process):
+        process.side_effect = [
+            subprocess.CompletedProcess([], 0, 'HTTP/2.0 200 OK\n\n{"name":"cached"}', ""),
+            subprocess.CompletedProcess(
+                [], 1, "HTTP/2.0 429 Too Many Requests\nRetry-After: 60\n\n{}", "",
+            ),
+        ]
+        api = GitHubAPI()
+        cached = api.get(f"repos/{REPO}")
+        with self.assertRaises(APIError):
+            api.get(f"repos/{REPO}/issues")
+        with self.assertRaises(APIError):
+            api.get(f"repos/{REPO}/pulls")
+        self.assertEqual(api.get(f"repos/{REPO}"), cached)
+        self.assertEqual(process.call_count, 2)
+        self.assertEqual(api.request_count, 2)
+
 
 class ExportAndConfigTests(unittest.TestCase):
     def test_csv_quotes_formula_safety_audit_and_no_overwrite(self):
@@ -476,6 +495,98 @@ class EndToEndTests(unittest.TestCase):
             f"repos/{REPO}/issues/1/dependencies/blocking": [],
             "graphql": graphql,
         })
+
+    def multi_api(self, count=4):
+        api = self.api()
+        api.routes[f"repos/{REPO}/issues"] = [raw_issue(number) for number in range(1, count + 1)]
+        for number in range(1, count + 1):
+            api.routes.update({
+                f"repos/{REPO}/issues/{number}": raw_issue(number),
+                f"repos/{REPO}/issues/{number}/dependencies/blocked_by": [],
+                f"repos/{REPO}/issues/{number}/dependencies/blocking": [],
+            })
+        return api
+
+    def test_parallel_collection_is_bounded_and_matches_serial_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            arguments = ["--config", str(ROOT / "defaults.example.yml"), "--repo", REPO]
+            serial = run(parser().parse_args(arguments + [
+                "--workers", "1", "--output-dir", str(Path(directory) / "serial"),
+            ]), self.multi_api(), SNAPSHOT)
+            barrier, lock = Barrier(2, timeout=5), Lock()
+            active = peak = 0
+            original = Collector.collect
+
+            def collect(worker, value):
+                nonlocal active, peak
+                with lock:
+                    active += 1
+                    peak = max(peak, active)
+                try:
+                    barrier.wait()
+                    return original(worker, value)
+                finally:
+                    with lock:
+                        active -= 1
+
+            with patch.object(Collector, "collect", collect):
+                parallel = run(parser().parse_args(arguments + [
+                    "--workers", "2", "--output-dir", str(Path(directory) / "parallel"),
+                ]), self.multi_api(), SNAPSHOT)
+            self.assertEqual(peak, 2)
+            self.assertEqual(parallel["status"], "complete")
+            self.assertEqual(parallel["issue_count"], 4)
+            self.assertEqual(
+                Path(serial["output_paths"]["csv"]).read_bytes(),
+                Path(parallel["output_paths"]["csv"]).read_bytes(),
+            )
+            audits = []
+            for summary in (serial, parallel):
+                rows = [json.loads(line) for line in
+                        Path(summary["output_paths"]["audit"]).read_text(encoding="utf-8").splitlines()]
+                for row in rows:
+                    row.pop("run_id")
+                audits.append(rows)
+            self.assertEqual(*audits)
+
+    def test_parallel_collection_drains_pending_work_after_enumeration_failure(self):
+        def issues(*args):
+            yield issue(labels=["Compute"])
+            yield issue(number=2, url=f"https://github.com/{REPO}/issues/2", labels=["Compute"])
+            raise APIError("later page unavailable", 503)
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(Collector, "issues", issues):
+            args = parser().parse_args([
+                "--repo", REPO, "--workers", "4", "--output-dir", directory,
+            ])
+            summary = run(args, self.multi_api(2), SNAPSHOT)
+            self.assertEqual(summary["status"], "partial")
+            self.assertEqual(summary["issue_count"], 2)
+            self.assertIn(REPO, summary["failures"])
+            self.assertTrue(any("later page unavailable" in item for item in summary["warnings"]))
+
+    def test_parallel_issue_failure_preserves_other_issues_and_partial_status(self):
+        api = self.multi_api(2)
+        api.routes[f"repos/{REPO}/issues/1/dependencies/blocked_by"] = APIError("denied", 403)
+        with tempfile.TemporaryDirectory() as directory:
+            args = parser().parse_args([
+                "--repo", REPO, "--workers", "2", "--output-dir", directory,
+            ])
+            summary = run(args, api, SNAPSHOT)
+            self.assertEqual(summary["status"], "partial")
+            self.assertEqual(summary["issue_count"], 2)
+            self.assertIn(ISSUE, summary["failures"])
+            self.assertEqual(summary["verdict_counts"]["data-incomplete"], 1)
+
+    def test_worker_count_respects_cpu_limit_and_rejects_invalid_values_before_api(self):
+        from triage import main
+        for cpus, expected in ((None, 1), (1, 1), (2, 2), (64, 4)):
+            with self.subTest(cpus=cpus), patch("triage.os.cpu_count", return_value=cpus):
+                self.assertEqual(parser().parse_args([]).workers, expected)
+        for value in ("0", "-1", "many"):
+            with self.subTest(value=value), patch("triage.GitHubAPI") as api, patch("sys.stdout"):
+                self.assertEqual(main(["--workers", value]), 2)
+                api.assert_not_called()
 
     def test_complete_run_writes_seven_column_csv_without_model(self):
         with tempfile.TemporaryDirectory() as directory:

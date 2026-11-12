@@ -41,6 +41,13 @@ Refresh issue state, labels, and timestamps; exclude closed or newly out-of-scop
 
 Do not silently truncate REST/GraphQL connections or use capped Search results as inventory.
 
+Per-issue evidence collection uses a bounded thread pool with no more pending
+issue tasks than the selected worker count. Each worker owns its `Collector`
+caches; workers share the locked API cache/request counter and exhausted-rate-limit
+signal. Enumeration failures must drain already-submitted work before publishing
+a partial export. Assessment, selected-head verification, summary aggregation, and
+export writes remain on the coordinator. Keep `--workers 1` as the serial path.
+
 ## Verification
 
 Run the [test command](python.md#help-and-tests) before and after refactoring.

@@ -38,6 +38,12 @@ alongside the collection in a new folder under `output`, then opens that collect
 in the UI and verifies the suggestions load. Browser checks depend on available
 tools; otherwise the agent verifies the server/API and reports that limitation.
 
+For large collections, the agent can split evidence review across sub-agents,
+sized to available resources and API quota. GitHub collection overlaps issue
+evidence reads with a bounded worker pool, defaulting to CPU count capped at four.
+Use `--workers 1` for serial collection; the agent can select a different limit
+when resources allow. One coordinator validates coverage and saves final files.
+
 ## View latest result
 
 ```text

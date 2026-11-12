@@ -9,6 +9,7 @@ import re
 import subprocess
 import time
 from datetime import timedelta
+from threading import Event, Lock
 from urllib.parse import quote, urlencode
 
 from triage_rules import ConfigurationError, iso_time, matches_patterns
@@ -70,6 +71,12 @@ class GitHubAPI:
         self.timeout = timeout
         self.cache = {}
         self.request_count = 0
+        self._lock = Lock()
+        self._rate_limited = Event()
+
+    def clear_cache(self):
+        with self._lock:
+            self.cache.clear()
 
     def request(self, method, endpoint, body=None, fresh=False):
         if not endpoint.startswith(("repos/", "orgs/", "graphql")):
@@ -80,8 +87,9 @@ class GitHubAPI:
         ):
             raise APIError("Only read-only GitHub requests are allowed")
         key = (method, endpoint, json.dumps(body, sort_keys=True))
-        if not fresh and key in self.cache:
-            return copy.deepcopy(self.cache[key])
+        with self._lock:
+            if not fresh and key in self.cache:
+                return copy.deepcopy(self.cache[key])
         command = [
             "gh", "api", "--hostname", "github.com", "--include",
             "--method", method, endpoint,
@@ -90,7 +98,10 @@ class GitHubAPI:
             command.extend(["--input", "-"])
         environment = dict(os.environ, GH_PROMPT_DISABLED="1", GH_PAGER="cat")
         for attempt in range(self.attempts):
-            self.request_count += 1
+            if self._rate_limited.is_set():
+                raise APIError("GitHub rate limit exhausted; retry collection later", 429)
+            with self._lock:
+                self.request_count += 1
             try:
                 result = subprocess.run(
                     command, input=json.dumps(body) if body is not None else None,
@@ -132,6 +143,10 @@ class GitHubAPI:
             if transient and attempt + 1 < self.attempts and delay <= 30:
                 time.sleep(delay)
                 continue
+            if status == 429 or (status == 403 and (
+                headers.get("x-ratelimit-remaining") == "0" or "retry-after" in headers
+            )):
+                self._rate_limited.set()
             if result.returncode or status is None or status >= 400 or not separator:
                 raise APIError(
                     f"{method} {endpoint.split('?')[0]} failed"
@@ -144,7 +159,8 @@ class GitHubAPI:
                 raise APIError("GitHub returned invalid JSON") from exc
             if endpoint == "graphql" and (not data or data.get("errors")):
                 raise APIError("GitHub GraphQL failed; partial query data was rejected")
-            self.cache[key] = (data, headers)
+            with self._lock:
+                self.cache[key] = (data, headers)
             return copy.deepcopy((data, headers))
         raise APIError("GitHub retries exhausted")
 
@@ -587,7 +603,7 @@ class Collector:
                 or bool(latest.get("merged_at")) != selected.get("merged")
             ):
                 # Do not reuse SHA-specific cached checks when a PR changes mid-run.
-                self.api.cache.clear()
+                self.api.clear_cache()
                 replacement = self.pr(selected_url, fresh=True)
                 record["prs"][record["prs"].index(selected)] = replacement
                 record["collection_errors"].extend(replacement["collection_errors"])
