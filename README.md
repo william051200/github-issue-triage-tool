@@ -13,20 +13,30 @@ npm --prefix ui install
 
 ## Run with an agent
 
-Replace the placeholders, then give your agent this prompt:
+Give your agent the repository and label. Dates are optional:
 
 ```text
-Use SKILL.md in this folder and the project .venv.
-Collect all open issues labeled <label> in <owner/repo>,
-created from <YYYY-MM-DD> through <YYYY-MM-DD>.
-Review every issue's body, comments, and linked issues/PRs.
-Provide evidence-backed suggested handling and a concrete next action for each.
-Save the collection and viewer-compatible review files in a new folder under output.
-Open this collection in the UI and verify suggested handling and next actions load.
+repo: <owner/repo>
+label: <label>
+date range: <YYYY-MM-DD> - <YYYY-MM-DD>
 ```
 
-For example, use `Compute` and `Azure/azure-cli`. Replace the date line with
-`with no date bounds` to include all matching open issues.
+For example:
+
+```text
+repo: Azure/azure-cli
+label: Compute
+```
+
+Omit `date range` to include all matching open issues, regardless of local date
+defaults. When supplied, dates filter creation time and include both UTC days.
+
+The repository instructions automatically use `SKILL.md` and the project `.venv`,
+collect the issues, and review every issue's body, comments, and linked issues/PRs.
+The agent saves evidence-backed suggested handling and concrete next actions
+alongside the collection in a new folder under `output`, then opens that collection
+in the UI and verifies the suggestions load. Browser checks depend on available
+tools; otherwise the agent verifies the server/API and reports that limitation.
 
 ## View latest result
 
